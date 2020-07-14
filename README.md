@@ -1,5 +1,4 @@
 # Article Linking
-![Python application](https://github.com/georgetown-cset/article-linking/workflows/Python%20application/badge.svg)
 
 This repository contains a description and supporting code for CSET's initial (as of February) method of 
 article linking. We have since made improvements, such as including simhash matches of title+abstracts,
