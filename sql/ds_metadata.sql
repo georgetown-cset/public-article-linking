@@ -1,3 +1,4 @@
+-- get digital science combined metadata used in matching
 SELECT
   d.id,
   d.title,
@@ -9,6 +10,6 @@ SELECT
 FROM
   gcp_cset_digital_science.dimensions_publications_with_abstracts_latest d
 INNER JOIN
-  {DATASET}.ds_authors a
+  {{params.dataset}}.ds_authors a
 ON
   d.id = a.id

@@ -1,3 +1,0 @@
-chardet
-langdetect
-pycld2

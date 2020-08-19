@@ -1,12 +1,26 @@
 # Article Linking
 
-This repository contains a description and supporting code for CSET's initial (as of February) method of 
-article linking. We have since made improvements, such as including simhash matches of title+abstracts,
-modifications to make updates to the linkage more efficient, and executing the linkage with Airflow, which
-we will publish in a later commit to this public repo. The documentation comes in four parts starting with
- [metadata normalization](methods_documentation/0_metadata_table_generation.md). This section describes
-how we put a subset of metadata across arXiv, Web of Science, Dimensions, and Microsoft Academic
-Graph into a common format, and then normalized that data.
+This repository contains a description and supporting code for CSET's current method of 
+cross-dataset article linking. Note that we use "article" very loosely, although in a way that to our knowledge 
+is fairly consistent across corpora. Books, for example, are included.
 
-Note that throughout, we use "article" very loosely, although in a way that to our knowledge is fairly
-consistent across corpora. Books, for example, are included. For full details, see the queries in section 1.
+For each article in arXiv, WOS, CNKI, Dimensions, and Microsoft Academic Graph, we normalized titles, abstracts, 
+and author last names, and then considered each group of articles within or across datasets that shared at least 
+three of the following (non-null) metadata fields:
+ 
+*  Normalized title
+*  Normalized abstract
+*  Publication year
+*  Normalized author last names
+*  Citations (for within dataset matches)
+*  DOI
+ 
+to correspond to one article in the merged dataset. We add to this set "near matches" of the concatenation 
+of the normalized title and abstract within a publication year, which we identify using simhash.
+
+To do this, we run the `linkage_dag.py` on airflow, and keep it along with its supporting files up to date
+using `./push_to_airflow_bucket.sh`. Don't run that script unless you have pulled and know what you're doing.
+The article linkage runs weekly, triggered by the MAG dag.
+
+For an English description of what the dag does, see [the documentation](methods_documentation/overview.md).
+

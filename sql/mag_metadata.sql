@@ -1,3 +1,4 @@
+-- get combined set of mag metadata in standard form used for match
 select
   p.PaperId as id,
   p.OriginalTitle as title,
@@ -9,7 +10,7 @@ select
   r.references
 from gcp_cset_mag.PapersWithAbstracts p
 left join
-{DATASET}.mag_authors a
+{{params.dataset}}.mag_authors a
 on p.PaperId = a.PaperId
 left join
   (select PaperId, string_agg(cast(PaperReferenceId as STRING) order by PaperReferenceId) as references

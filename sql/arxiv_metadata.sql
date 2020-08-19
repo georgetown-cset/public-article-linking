@@ -1,3 +1,4 @@
+-- get arxiv metadata used for matching
 select
   p.id,
   p.title,
@@ -8,5 +9,5 @@ select
   null as references -- arxiv doesn't have references
 from gcp_cset_arxiv_metadata.arxiv_metadata_latest p
 left join
-{DATASET}.arxiv_authors a
+{{params.dataset}}.arxiv_authors a
 on a.id = p.id
