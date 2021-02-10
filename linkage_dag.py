@@ -22,7 +22,7 @@ from dataloader.airflow_utils.slack import task_fail_slack_alert
 default_args = {
     "owner": "airflow",
     "depends_on_past": False,
-    "start_date": datetime(2020, 3, 15),
+    "start_date": datetime(2020, 12, 12),
     "email": ["jennifer.melot@georgetown.edu"],
     "email_on_failure": True,
     "email_on_retry": True,
@@ -42,8 +42,8 @@ with DAG("article_linkage_updater",
     raw_data_dir = f"{gcs_folder}/data"
     schema_dir = f"{gcs_folder}/schemas"
     sql_dir = f"sql/{gcs_folder}"
-    staging_dataset = "staging_your_bq_dataset"
-    production_dataset = "your_bq_dataset"
+    staging_dataset = "your_bq_staging_dataset"
+    production_dataset = "your_bq_production_dataset"
     project_id = "your-gcp-project-id"
     gce_zone = "us-east1-c"
     gce_resource_id = "your-linkage-vm"
@@ -61,7 +61,7 @@ with DAG("article_linkage_updater",
     # standard format
     metadata_sequences_start = []
     metadata_sequences_end = []
-    for dataset in ["arxiv", "cnki", "ds", "mag", "wos"]:
+    for dataset in ["arxiv", "cnki", "ds", "mag", "wos", "papers_with_code"]:
         ds_commands = []
         query_list = [t.strip() for t in open(f"{dags_dir}/sequences/"
                                                            f"{gcs_folder}/generate_{dataset}_metadata.tsv")]
@@ -208,7 +208,7 @@ with DAG("article_linkage_updater",
         last_combination_query >> next
         last_combination_query = next
 
-    # Now, we need to prep some inputs for RAM and CPU-intensive code that will run on your linkage vm.
+    # Now, we need to prep some inputs for RAM and CPU-intensive code that will run on the linkage vm.
     heavy_compute_inputs = [
         BigQueryToCloudStorageOperator(
             task_id="export_old_cset_ids",
@@ -271,7 +271,7 @@ with DAG("article_linkage_updater",
         f"/snap/bin/gsutil -m cp simhash_results/* gs://{bucket}/{gcs_folder}/simhash_results/",
         f"/snap/bin/gsutil -m cp new_simhash_indexes/* gs://{bucket}/{gcs_folder}/simhash_indexes/"
     ]
-    vm_script = ";".join(vm_script_sequence)
+    vm_script = " && ".join(vm_script_sequence)
 
     create_cset_ids = BashOperator(
         task_id="create_cset_ids",
@@ -376,12 +376,38 @@ with DAG("article_linkage_updater",
             use_legacy_sql=False
         ))
 
-    check_queries.append(BigQueryCheckOperator(
+    check_queries.extend([
+        BigQueryCheckOperator(
             task_id="all_ids_survived",
-            sql=(f"select count(0) = 0 from (select id from staging_your_bq_dataset.union_ids "
-                 f"where id not in (select orig_id from staging_your_bq_dataset.article_links))"),
+            sql=(f"select count(0) = 0 from (select id from {staging_dataset}.union_ids "
+                 f"where id not in (select orig_id from {staging_dataset}.article_links))"),
             use_legacy_sql=False
-    ))
+        ),
+        BigQueryCheckOperator(
+            task_id="all_trivial_matches_survived",
+            sql=f"""
+            select
+              count(concat(all1_id, " ", all2_id)) = 0
+            from
+              {staging_dataset}.metadata_self_triple_match
+            where concat(all1_id, " ", all2_id) not in (
+              select
+                concat(links1.orig_id, " ", links2.orig_id)
+              from 
+                {staging_dataset}.article_links links1
+              left join
+                {staging_dataset}.article_links links2
+              on links1.merged_id = links2.merged_id
+            )
+            """,
+            use_legacy_sql=False
+        ),
+        BigQueryCheckOperator(
+            task_id="no_null_references",
+            sql=f"select count(0) = 0 from {staging_dataset}.mapped_references where id is null or ref_id is null",
+            use_legacy_sql = False
+        ),
+    ])
 
     # We're done! Checks passed, so copy to production and post success to slack
     start_production_cp = DummyOperator(task_id="start_production_cp")
@@ -396,6 +422,16 @@ with DAG("article_linkage_updater",
             write_disposition="WRITE_TRUNCATE"
         ))
 
+    snapshot_table = f"{production_dataset}.article_links_"+datetime.now().strftime("%Y_%m_%d")
+    # mk the snapshot predictions table
+    snapshot = BigQueryToBigQueryOperator(
+        task_id="mk_snapshot",
+        source_project_dataset_tables=[f"{staging_dataset}.article_links"],
+        destination_project_dataset_table=snapshot_table,
+        create_disposition="CREATE_IF_NEEDED",
+        write_disposition="WRITE_TRUNCATE"
+    )
+
     success_alert = SlackWebhookOperator(
         task_id="post_success",
         http_conn_id="slack",
@@ -405,9 +441,8 @@ with DAG("article_linkage_updater",
     )
 
     downstream_tasks = [
-        TriggerDagRunOperator(task_id="trigger_merge_meta",
-                                               trigger_dag_id="merged_article_metadata_updater"),
-        TriggerDagRunOperator(task_id="trigger_article_classification", trigger_dag_id="article_classification")
+        TriggerDagRunOperator(task_id="trigger_article_classification", trigger_dag_id="article_classification"),
+        TriggerDagRunOperator(task_id="trigger_citation_percentiles", trigger_dag_id="citation_percentiles"),
     ]
 
     # task structure
@@ -418,4 +453,5 @@ with DAG("article_linkage_updater",
     (last_combination_query >> heavy_compute_inputs >> gce_instance_start >> [create_cset_ids, run_lid] >>
         gce_instance_stop >> [import_id_mapping, import_lid] >> start_final_transform_queries)
 
-    last_transform_query >> check_queries >> start_production_cp >> push_to_production >> success_alert >> downstream_tasks
+    (last_transform_query >> check_queries >> start_production_cp >> push_to_production >> snapshot >>
+        success_alert >> downstream_tasks)

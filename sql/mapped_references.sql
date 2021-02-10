@@ -1,7 +1,9 @@
 -- map references to their carticle ids
 select distinct b.merged_id as id, c.merged_id as ref_id from
 (select id, reference from (
-  select id, reference, dataset from staging_your_bq_dataset.all_metadata_with_cld2_lid cross join unnest(split(references, ",")) as reference
+  select id, reference, dataset from staging_gcp_cset_links.all_metadata_with_cld2_lid cross join unnest(split(references, ",")) as reference
+  union all
+  select id, ref_id as reference, "cnki" as dataset from staging_cnki_downstream_updates.exact_normalized_title_matches
   union all
   (
     select a12.cnki_document_id as id, a11.target_id as reference, "cnki" as dataset from
@@ -22,9 +24,9 @@ select distinct b.merged_id as id, c.merged_id as ref_id from
     on a23.document_name = a21.out_citation_document_name
   )
 ) where reference in (
-  select orig_id from staging_your_bq_dataset.article_links_with_dataset where dataset=dataset
+  select orig_id from staging_gcp_cset_links.article_links_with_dataset
 )) a
-left join staging_your_bq_dataset.article_links b
+left join staging_gcp_cset_links.article_links b
 on a.id = b.orig_id
-left join staging_your_bq_dataset.article_links c
+left join staging_gcp_cset_links.article_links c
 on a.reference = c.orig_id

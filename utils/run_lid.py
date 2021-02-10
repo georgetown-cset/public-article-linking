@@ -8,21 +8,24 @@ import json
 import logging
 import pycld2 as cld2
 import apache_beam as beam
+
 from apache_beam.options.pipeline_options import PipelineOptions
+from typing import Iterable
+
 
 class LangId(beam.DoFn):
-    '''
+    """
     Beam pipeline to do Language ID.
-    '''
+    """
     def __init__(self, fields_to_lid: list) -> None:
         self.fields_to_lid = fields_to_lid
 
     def add_cld2_outputs(self, record: dict) -> None:
-        '''
+        """
         Adds cld2 translations and confidence measures to `record`
         :param record: Record containing fields we want to run LID on. Mutated by this method.
         :return: None. Mutates `record`
-        '''
+        """
         for field in self.fields_to_lid:
             # ... the default success state
             record[field + "_cld2_lid_success"] = False
@@ -50,20 +53,20 @@ class LangId(beam.DoFn):
             except UnicodeDecodeError as e:
                 logging.warning(e)
 
-    def process(self, record_str: str) -> iter:
+    def process(self, record_str: str) -> Iterable:
         record = ast.literal_eval(record_str)
         self.add_cld2_outputs(record)
         yield json.dumps(record)
 
 def run_pipeline(input_dir: str, output_dir: str, fields_to_lid: list, pipeline_args: list) -> None:
-    '''
+    """
     Run a beam pipeline that cleans all records within all files in input_dir
     :param input_dir: Directory of jsonl files to run LID on. Can be local or gcs
     :param output_dir: Directory where post-LID files should be written. Can be local or gcs
     :param fields_to_lid: Fields to run lid on within each record
     :param pipeline_args: Beam pipeline args
     :return: None
-    '''
+    """
     with beam.Pipeline(options=PipelineOptions(pipeline_args)) as p:
         (p | "Read from Text" >> beam.io.ReadFromText(input_dir)
             | "Run LID" >> beam.ParDo(LangId(fields_to_lid))
